@@ -108,21 +108,21 @@ def Penguins_On_Way(groups):
     return total
 
 
-def Enemy_Defence_Power(game, target, turns):
-    en_ice = game.get_enemy_icebergs()
+def The_Nosha(game, target, turns, beta = 0):
+    cost = beta # beta
+    #cost += Get_Cost_Attack(game, target, turns) #gama
     
-    en_ice = sorted(en_ice, key = lambda x:x.get_turns_till_arrival(target))
+    for ice in game.get_enemy_icebergs():
+        max_send = Max_Send_Amount(game,ice) #alpha
+        enemy_distance_delta = turns - ice.get_turns_till_arrival(target) #delta phi
+        if max_send < abs(min(enemy_distance_delta,0)) * target.penguins_per_turn:
+            continue
+        cost += max_send + min(enemy_distance_delta,0) * target.penguins_per_turn
+        #print('cost:',cost,'target:',target)
 
-    defence_power = 0
+    return cost
 
-    for ice in en_ice:
-        #print('herrreeeeee',target)
-        if ice.get_turns_till_arrival(target) > turns:
-            break
-        
-        defence_power += Max_Send_Amount(game, ice, turns)
-    print('edp',defence_power + target.penguins_per_turn * turns + 1)
-    return defence_power + target.penguins_per_turn * turns + 1
+
 
 
 def Get_Cost_Attack(game, target, turns):
@@ -144,7 +144,7 @@ def Get_Cost_Attack(game, target, turns):
 
     if target.owner.id == 1:
         #print('target:',target,'enemy def:',Get_Cost_Defence(game, target, turns))
-        cost = abs(Get_Amount(game, target, turns)) 
+        cost = The_Nosha(game, target, turns, abs(Get_Amount(game, target, turns)))  
         return cost + 1
 
     elif target.owner.id == -1: 
@@ -175,7 +175,7 @@ def Get_Cost_Defence(game, target, turns):
     if left > 0:
         return 1000
     
-    print('left',(left),'target:',target)
+    #print('left',(left),'target:',target)
     return abs(left) + 1
     
         
@@ -570,14 +570,14 @@ def do_turn(game):
     for ice in game.get_all_icebergs():
 
         if ice.owner.id == 0:
-            print("FRIENDLY_ICE: ", ice, Get_Amount(game, ice, 50))
-            print("MAX_SEND_AMOUNT: ", Max_Send_Amount(game, ice))
+            #print("FRIENDLY_ICE: ", ice, Get_Amount(game, ice, 50))
+            #print("MAX_SEND_AMOUNT: ", Max_Send_Amount(game, ice))
             pass
         elif ice.owner.id == 1:
-            print("ENEMY_ICE: ", ice,  Get_Amount(game, ice, 50))
+            #print("ENEMY_ICE: ", ice,  Get_Amount(game, ice, 50))
             pass
         else:
-            print("NEUTRAL_ICE: ", ice,  Get_Amount_Neutral(game, ice, 50))
+            #print("NEUTRAL_ICE: ", ice,  Get_Amount_Neutral(game, ice, 50))
             pass
         if Already_Taken_Action(game, ice):
             continue
@@ -598,21 +598,22 @@ def do_turn(game):
         if my.level == 4:
             continue
         
-        upgrade_PP = PP_avg(1, 0, my.upgrade_cost) + SP(game, my)
+        upgrade_PP = PP_avg(1, 1, my.upgrade_cost) + SP(game, my)
         
         for attack in attack_infos:
             if my not in attack.group:
                 continue
             amount = Attack_Split(game, attack, my)
             attack_potential = attack.custom_pp(amount) + SP(game, attack.target)
-            if upgrade_PP > attack.potential:
+            if upgrade_PP > attack_potential:
                 if Max_Send_Amount(game, my) > my.upgrade_cost and my not in ice_used:
                     my.upgrade()
-                    #print('Upgraded_Ice:', my,'Upgrade_PP: ', upgrade_PP, "Attack_PP ", attack_potential)
+                print('Upgraded_Ice:', my,'Upgrade_PP: ', upgrade_PP, "Attack_PP ", attack_potential)
                 ice_used.add(my)
             else:
                 break
 
+    #print('ice used:',ice_used)
         
     for attack in attack_infos:
         if attack.target in game.get_my_icebergs():
