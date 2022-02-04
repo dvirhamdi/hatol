@@ -33,7 +33,7 @@ class Attack_Info:
 
 
 K = (10, 100, 10) # turns depth (start, end, step)
-
+penguins_to_dest = {}
 
 def PP(t, a, b, c):
     """
@@ -70,23 +70,16 @@ def Strategic_Rating(game, ice):
     return 1 / (turns / len(game.get_all_icebergs()))
 
 
-def Penguins_To_Destination(game, target, Id = 0):
-    
-    ret = []
-    
-    if Id == 0:
-        groups = game.get_my_penguin_groups()
-    elif Id == 1:   
-        groups = game.get_enemy_penguin_groups()
-    elif Id == 2:
-        groups = game.get_all_penguin_groups()
+def Penguins_To_Destination(game):
+    global penguins_to_dest
 
-    for group in groups:
-        if group.destination == target:
-            ret.append(group)
+    for p_group in game.get_all_penguin_groups():
+        if penguins_to_dest.get(p_group.destination) == None:
+            penguins_to_dest[p_group.destination] = [p_group]
+        else:
+            penguins_to_dest[p_group.destination].append(p_group)
     
-    return ret
-
+    print('penguin to dest:',penguins_to_dest)
 
 def Penguins_On_Way(groups):
     """
@@ -100,7 +93,6 @@ def Penguins_On_Way(groups):
             total   - the amount of penguins that are heading to the target
             
     """
-    
     total = 0
     
     for group in groups:
@@ -180,6 +172,7 @@ def Get_Cost_Defence(game, target, turns):
     
         
 def Get_Amount(game, ice, turns, offset = 0):
+    global penguins_to_dest
     """
     returns the amount of penguins present in a friendly iceberg after (turns)
     if left < 0: ENEMY penguin amount (negative)
@@ -192,7 +185,7 @@ def Get_Amount(game, ice, turns, offset = 0):
     """
     
     #get all penguins heading to ice;
-    groups = Penguins_To_Destination(game, ice, Id = 2)
+    groups = penguins_to_dest.get(ice,[])
 
     #sort by distance: closest to furthest;
     groups.sort(key = lambda x:x.turns_till_arrival)
@@ -234,6 +227,7 @@ def Get_Amount(game, ice, turns, offset = 0):
     
 
 def Get_Amount_Neutral(game, ice, turns):
+    global penguins_to_dest
     """
     returns the amount of penguins present in a friendly iceberg after (turns)
     if left < 0: ENEMY penguin amount (negative)
@@ -246,7 +240,7 @@ def Get_Amount_Neutral(game, ice, turns):
     """
     
     #get penguins heading to ice;
-    groups = Penguins_To_Destination(game, ice, Id = 2)
+    groups = penguins_to_dest.get(ice,[])
 
     #sort by distance: closest to furthest;
     groups.sort(key = lambda x:x.turns_till_arrival)
@@ -386,7 +380,7 @@ def Turns_To_Execute_Defence(game, group, target):
     
     total_production = 0
     total_amount = 0
-    max_turns = Max_Penguin_Turns(Penguins_To_Destination(game, target, Id = 2))
+    max_turns = Max_Penguin_Turns(target, Id = 2)
     cost = Get_Cost_Defence(game, target, max_turns)
     till_cost = 0
     
@@ -421,20 +415,35 @@ def Max_Group_Turns(group, target):
     return max_turns
         
 
-def Max_Penguin_Turns(groups):
+def Max_Penguin_Turns(target, Id = 2):
+    global penguins_to_dest
     """
-    Returns the amount of turns for the furthest iceberg to get to the target
+    Returns the amount of turns for the furthest penguin group
+    targeting this target to get to the target
+    
+    Input Parameters:
+        target      - the targeted iceberg
+        Id          - the max 
 
     The parameters:
         max_turns   - the amount of turns for the furthest penguin group to arrive
     """
     
-    max_turns = 0
-    for group in groups:
-            turns = group.turns_till_arrival
-            if turns > max_turns:
-                max_turns = turns
+    max_turns = 0 #the amount of turns for the furthest penguin group to arrive
+    penguins = penguins_to_dest.get(target,[])
+    if Id == 2: #all penguin group
+        for group in penguins:
+                turns = group.turns_till_arrival
+                if turns > max_turns:
+                    max_turns = turns
     
+    else:
+        for group in penguins:
+            if group.owner.id == Id:
+                turns = group.turns_till_arrival
+                if turns > max_turns:
+                    max_turns = turns
+
     return max_turns
 
 
@@ -477,7 +486,7 @@ def Best_Group(game, target):
         return None
 
     #print('cost',Get_Cost_Attack(game, Max_Group_Turns(best_group,target), target),'target',target)
-    max_turns = Max_Penguin_Turns(Penguins_To_Destination(game, target, Id = 1))
+    max_turns = Max_Penguin_Turns(target,Id = 1)
     #max_turns = max(max_turns,Max_Penguin_Turns(Penguins_To_Destination(game, target, Id = 0)))
     #cost = Get_Cost_Defence(game, target, max_turns)
     if target.owner.id == 0:
@@ -559,11 +568,14 @@ def Already_Taken_Action(game, target):
   
 
 def do_turn(game):
+    global penguins_to_dest
     """
     dvir.
     smokes......
     """
     
+    Penguins_To_Destination(game)
+
     attack_infos = []
     ice_used = set()
 
@@ -633,3 +645,6 @@ def do_turn(game):
                 break
         else:
             Attack(game, attack, ice_used)
+
+    penguins_to_dest = {}
+    
