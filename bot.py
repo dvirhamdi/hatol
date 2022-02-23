@@ -2,23 +2,38 @@ from penguin_game import *
 import math
 import itertools
 
-# global variable for saving the game's given parameters
+# global variable for saving the game's given parameters;
 turnfo = None
+#determins the density of the icebergs in the map;
 density = 0
 
 class Game_Info:
     """
-    This function updates all the constant parameters for each turn;
+    This class updates all the constant parameters for each turn;
 
     my_id   - our id[int];
     en_id   - enemy id[int];
 
+    all_ice - list of all icebergs(including bonus)[list];
     my_ice  - list of all our icebergs[list];
     en_ice  - list of all enemy icebergs[list];
     nu_ice  - list of all neutral icebergs[list];
 
+    bu_ice  - the bouns iceberg;
+
+
+    my_prod - our total prodaction;
+    en_prod - enemy total prodaction;
+    
     penguins_to_dest    - dictionary of the penguins groups aheding to a iceberg[dict];
-    dict format: {ice1:[group1,group3],ice2:[],ice3:[group2],...}
+                        dict format: {ice1:[group1,group3],ice2:[],ice3:[group2],...}
+    
+    bridge_multi    - the speed multiplayer the bridge provides;
+    bridge_max_duration - the maximum turns the bridge will last;
+
+    K   -   turns depth (start, end, step);
+    density - the density of the map;
+    
     """
 
     def __init__(self, game):
@@ -26,52 +41,71 @@ class Game_Info:
         self.en_id = game.get_enemy_icebergs()[0].owner.id
         self.my_id = 0 if self.en_id == 1 else 1
 
-        # get the lists of the icebergs
+        # get the lists of the icebergs;
         self.my_ice = None
         self.en_ice = game.get_enemy_icebergs()
         self.nu_ice = game.get_neutral_icebergs()
         self.bu_ice = None
+        
+        self.my_prod = 0.0
+        self.en_prod = 0.0
+
+        # bonus information
         try:
             self.bu_ice = game.get_bonus_iceberg()
-        except AttributeError:  # the game doesn't have any bonus icebergs
+            self.max_turns_to_bonus = self.bu_ice.max_turns_to_bonus
+            self.bonus = game.bonus_iceberg_penguin_bonus
+        except AttributeError:  # the game doesn't have any bonus icebergs;
             self.bu_ice = None
+            self.bonus = None
+            self.max_turns_to_bonus = None
             
+        # bridge information;
+        try:
+            self.bridge_multi = game.iceberg_bridge_speed_multiplier
+            self.bridge_max_duration = game.iceberg_max_bridge_duration
+        except AttributeError:
+            self.bridge_multi = None
+            self.bridge_max_duration = None
+        
         self.all_ice = game.get_all_icebergs()
         if self.bu_ice != None:
             self.all_ice.append(self.bu_ice)
 
         self.penguins_to_dest = {}
-        self.ice_roles = {}
 
-        try:
-            self.bonus = game.bonus_iceberg_penguin_bonus
-        except AttributeError:
-            self.bonus = None
-
-        self.K = (49, 50, 1)  # turns depth (start, end, step)
+        self.K = (49, 50, 1)  # turns depth (start, end, step);
 
         self.density = density
-        # our score
-        self.score = [player.score for player in game.get_all_players() if player.id == self.my_id][0]
 
-        # initialize the dictionary
+        # initialize the penguins_to_dest dictionary;
         for ice in self.all_ice:
             self.penguins_to_dest[ice] = []
 
-        # add the groups heading to the destination
+        # add the groups heading to the destination;
         for group in game.get_all_penguin_groups():
             self.penguins_to_dest[group.destination].append(group)
 
+        self.Update_My_Porduction(game)
+        self.Update_En_Porduction(game)
 
         
     def Update(self, game, attackers=2):
+        """
+        This function initiallizes my ice with the Ice_Info class;
+        and updates all of their parameters;
         
+        """
         self.my_ice = [Ice_Info(game, ice) for ice in game.get_my_icebergs()]
 
         for ice in self.my_ice:
             ice.Update_All(attackers=attackers)
 
+
     def Get_Attackers(self):
+        """
+        This function returns all the attackers(via roles);
+        """
         ret = []
         for my in self.my_ice:
             if my.is_attacker:
@@ -79,68 +113,120 @@ class Game_Info:
 
         return ret
 
+
     def Get_Supporters(self):
+        """
+        This function returns all the supporters(via roles);
+        """
         ret = []
         for my in self.my_ice:
             if not my.is_attacker:
                 ret.append(my)
 
         return ret
+    
+
+    def Update_My_Porduction(self, game):
+        """
+        This function updates our total production;
+        """
+        for ice in game.get_my_icebergs():
+            self.my_prod += ice.penguins_per_turn
+        
+        #calculates the bonus iceberg production;
+        if self.bu_ice != None and self.bu_ice.owner.id == self.my_id:
+            self.my_prod += (float(self.bonus) / float(self.bu_ice.max_turns_to_bonus)) * len(game.get_my_icebergs())
+    
+    
+    def Update_En_Porduction(self, game):
+        """
+        This function updates the total enemy production;
+        """
+        for ice in game.get_enemy_icebergs():
+            self.en_prod += ice.penguins_per_turn
+
+        #calculates the bonus iceberg production;
+        if self.bu_ice != None and self.bu_ice.owner.id == self.en_id:
+            self.my_prod += (float(self.bonus) / float(self.bu_ice.max_turns_to_bonus)) * len(self.en_ice)
 
 
 class Ice_Info:
+    """
+    This class represnts our icebergs with unique parameters;
+
+    The parameters:
+        ice             - the iceberg represents;
+        amount          - the current amount of penguins an iceberg have(after sending penguins;)
+        production      - the production of this iceberg
+        level           - the level of the iceberg
+        upgrade_cost    - the upgrade cost of this iceberg
+        
+        max_send        - the maximum number of penguins the iceberg can send;
+        is_attacker     - True if an iceberg is an attacker otherwise false(supporter);    
+        sp              - the strategic potential of the iceberg;
+    """
     def __init__(self, game, ice):
+        # constant iceberg parameters
         self.ice = ice
-        self.max_send = 0
-        self.incoming_penguins = turnfo.penguins_to_dest[ice]
-        self.is_attacker = False
-
-        self.attack_infos = None
-
-        self.sp = 0
-
         self.amount = ice.penguin_amount
         self.production = ice.penguins_per_turn
         self.level = ice.level
         self.upgrade_cost = ice.upgrade_cost
-
+        
+        # other calculated parameters
+        self.max_send = 0
+        self.is_attacker = False
+        self.sp = 0
 
     def Update_All(self, attackers = 2):
+        """
+        This function updates all the parameters;
+        """
         self.Update_Role(attackers = attackers)
         self.Update_Max_Send()
         self.Update_SP()
 
+
     def Update_SP(self):
         self.sp = SP(self.ice)
 
+
     def Update_Role(self, attackers = 2):
-        # if ice in attckers list change its role to attcker
-        print("Attackers: ", attackers)
         Assign_Roles(attackers=attackers)
 
+
     def Update_Max_Send(self, turns=50, ice=None):
-        # under test
+        """
+        This function calculates the amount of penguins that an iceberg can send without getting;
+        overtaken or trying to commit suicide;
+
+        The parameters:
+            binary search parameters:
+                mini    - the minimum that the iceberg can send (zero at first);
+                maxi    - the maximum that the iceberg can send (iceberg penguin amount);
+                avg     - the avrege between mini & maxi;
+        """
         mini = 0.0
-        maxi = float(self.ice.penguin_amount) + 1
+        maxi = self.amount + 1.0
         avg = 0
 
         avgs = []
+        # while we didnt got the same avg twice;
         while avg not in avgs:
+            # if called from ice_info else called from outside;
             if ice == None:
                 result = Get_Amount(self.ice, turns, offset=avg)
             else:
                 result = Get_Amount(ice, turns, offset=avg)
+            # if we will die;
             if result <= 0:
                 maxi = avg
-            else:
+            else: # we survive;
                 mini = avg
 
             avgs.append(avg)
             avg = math.floor((maxi + mini) / 2)
 
-            # print('avg',avg,'mini',mini,'maxi',maxi)
-        # place for printing
-        # print('pa',self.ice.penguin_amount)
         if ice == None:
             self.max_send = min(self.ice.penguin_amount, int(avg))
         else:
@@ -148,50 +234,64 @@ class Ice_Info:
 
         return self.max_send
 
+
     def __repr__(self):
-        # return """  ------------------
-        #        ice:{}
-        #        max send:{}
-        #        incoming penguin:{}
-        #        role:{}
-        #        SP:{}
-        #        -----------------------
-        #        """.format(self.ice, self.max_send, self.total_incoming, self.role, self.sp)
+        """
+        This function overrides the default to_string function of a class;
+        """
         return str(self.ice)
 
 
 class Attack_Info:
+    """
+    This class represents the unique attack information;
+
+    The Parameters:
+        group       - the intended icebergs that will attack the enemy/neutrial iceberg;
+        target      - the enemy/neutrial iceberg to attack;
+
+        cost        - the amount of penguins to overtake the target + 1;
+        can_execute - the amount of turns until the group can attack;
+        
+        turns       - the maximum turns from the furthest iceberg in the group to the target;
+        potential   - the potential of the amount of penguins that can be earned by overtaking;
+                    minus the penguins that were used to overtake(the cost);
+    """
     def __init__(self, group, target, turns, can_execute, cost):
-        """
-        The Parameters:
-            group       - the intended icebergs that will attack the enemy/neutrial iceberg
-            target      - the enemy/neutrial iceberg to attack
-            cost        - the amount of penguins to overtake the target + 1
-            can_execute - True if the group can attack the target this turn, False otherwise
-            turns       - the maximum turns from the furthest iceberg in the group to the target
-            potential   - the potential of the amount of penguins that can be earned by overtaking
-                        minus the penguins that were used to overtake
-        """
-        self.group = group
+
+        self.group = group 
         self.target = target
+
         self.cost = cost
         self.can_execute = can_execute
+
         self.turns = turns
-        if self.target != turnfo.bu_ice:    # if the target isn't a bonus
-            self.potential = PP_avg(target.penguins_per_turn, self.turns, self.cost) + SP(target)
+        self.potential = 0
+        
+        #if the target is an enemy and our total production is greater then lower the potential;
+        if self.target.owner.id == turnfo.en_id and turnfo.my_prod >= turnfo.en_prod:
+            self.potential -= float(turnfo.en_prod/turnfo.my_prod) * 10.0
+        if self.target != turnfo.bu_ice:    # if the target isn't a bonus iceberg;
+            self.potential += PP_avg(self.target.penguins_per_turn, self.turns, self.cost) + SP(target)
 
-        else:
-
+        else:   #the target is a bouns iceberg
             
-            a = math.floor(float(turnfo.bonus) / float(turnfo.bu_ice.max_turns_to_bonus) * float(len(turnfo.my_ice)))
-            print(a)
-            self.potential = PP_avg(a, self.turns, self.cost) + SP(target)
+            #TODO:need to be better!!!
+            a = float(turnfo.bonus) / float(turnfo.max_turns_to_bonus) * float(len(turnfo.my_ice)) # bouns prod
+            print("bonus a:", a)
+            if turnfo.bu_ice.owner.id == turnfo.my_id:
+                self.potential = PP_avg(a, self.turns + turnfo.bu_ice.turns_left_to_bonus, self.cost) #no sp??
+            else:
+                self.potential = PP_avg(a, self.turns + turnfo.bu_ice.max_turns_to_bonus, self.cost) # no so??
+                if turnfo.bu_ice.owner.id == -1:
+                    self.potential -= SP(self.target) #???
             
-            if turnfo.bu_ice.owner == turnfo.en_id:
-                self.potential += math.floor(float(turnfo.bonus) / float(turnfo.bu_ice.max_turns_to_bonus) * float(len(turnfo.en_ice)))
+            """if turnfo.bu_ice.owner.id == turnfo.en_id:
+                a = float(turnfo.bonus) / float(turnfo.bu_ice.max_turns_to_bonus) * float(len(turnfo.en_ice))
+                self.potential += PP_avg(a, self.turns, self.cost)"""
+            print("bonus PP:", self.potential)
             
-            """
-            a = ((turnfo.bonus + 0.0) / (turnfo.bu_ice.turns_left_to_bonus + 0.1)) * len(turnfo.my_ice)
+            """a = ((turnfo.bonus + 0.0) / (turnfo.bu_ice.turns_left_to_bonus + 0.1)) * len(turnfo.my_ice)
             a -= ((turnfo.bonus + 0.0) / (turnfo.bu_ice.turns_left_to_bonus + 0.1)) * len(turnfo.en_ice)
 
             print('a', a, turnfo.bonus, turnfo.bu_ice.turns_left_to_bonus, len(turnfo.my_ice),
@@ -202,10 +302,10 @@ class Attack_Info:
             a -= ((turnfo.bonus + 0.0) / (turnfo.bu_ice.turns_left_to_bonus + 0.1)) * len(turnfo.en_ice) 
 
             if turnfo.bu_ice.id == turnfo.en_id:
-                self.potential += PP_avg(a, self.turns, 0) * 0.5
-            """
+                self.potential += PP_avg(a, self.turns, 0) * 0.5"""
+            
 
-        # if the iceberg isn't nutrual & the target isn't a bonus iceberg
+        # if the iceberg isn't neutral & the target isn't a bonus iceberg
         if self.target.owner.id != -1 and self.target != turnfo.bu_ice:
             # dis = 0
             # calculate the mean distance from all the icebergs
@@ -226,6 +326,7 @@ class Attack_Info:
                                                                                                 self.turns,
                                                                                                 self.potential,(SP(
                                                                                                         self.target)))
+
 
     def custom_pp(self, cost):
         """
@@ -255,14 +356,12 @@ def SP(ice):
     When the map is denser the SP is less important.
     """
     
-    avg_dist = 0    # average destenation between the iceberg and the enemy icebergs
+    avg_dist = 0.0   # average destenation between the iceberg and the enemy icebergs
     for ice2 in turnfo.en_ice:
         avg_dist += ice.get_turns_till_arrival(ice2)    
     avg_dist /= len(turnfo.en_ice)
     #print(avg_dist * density / 100.0)
-    
-    return avg_dist * density / 100.0
-
+    return float(avg_dist) * float(density)
 
     
 def Max_Send(turns=50, ice=None):
@@ -289,9 +388,6 @@ def Max_Send(turns=50, ice=None):
     max_send = min(ice.penguin_amount, int(avg))
 
     return max_send
-
-
-
 
 
 def Get_Amount(ice, turns, offset=0):
@@ -515,6 +611,7 @@ def Get_Cost_Attack(target, turns):
 
     elif target.owner.id == -1:
         cost, neutral = Get_Amount_Neutral(target, turns)
+        cost += The_Nosha(target, turns)
 
         if not neutral and cost <= 0:
             return abs(cost) + 1
@@ -569,8 +666,8 @@ def Turns_To_Execute_Attack(group, target):
 
     for ice_info in group:
         total_production += ice_info.ice.penguins_per_turn
-        safe_amount = ice_info.max_send
-        total_amount += safe_amount
+        total_amount += ice_info.max_send
+
 
     if total_amount >= cost:
         return 0
@@ -605,8 +702,8 @@ def Turns_To_Execute_Defence(group, target):
 
     for ice_info in group:
         total_production += ice_info.ice.penguins_per_turn
-        safe_amount = ice_info.max_send
-        total_amount += safe_amount
+        total_amount += ice_info.max_send
+
 
     if total_amount >= cost:
         return 0
@@ -702,6 +799,7 @@ def Attack(attack_info, ice_used):
 
     left_to_send = attack_info.cost
 
+
     for ice_info in group:
         amount = min(left_to_send, ice_info.max_send)
         left_to_send -= amount
@@ -713,7 +811,11 @@ def Attack(attack_info, ice_used):
         print('cost:', attack_info.cost)
         print('---------------')
         ice_info.ice.send_penguins(attack_info.target, int(amount))
-        ice_used.add(ice_info)
+        #ice_used.add(ice_info)
+        ice_info.amount -= int(amount)
+        ice_info.Update_Max_Send()
+
+
 
 
 def Attack_Split(attack_info, my):
@@ -791,11 +893,9 @@ def Upgrade(attack_infos, ice_used):
             upgrade_PP = PP_avg(1, turns_to_upgrade, ice.upgrade_cost) + SP(ice.ice)  # the upgrade potential for an iceberg
             amount = Attack_Split(attack, ice)  # the amount that this iceberg will attack in this attack info
             attack_potential = attack.custom_pp(amount)  # calculates the attack potential of this iceberg
-
-            """if turnfo.score >= 50:
-                upgrade_PP += (100 - turnfo.score) / 10.0"""
+            if len(attack.group) == 1: attack_potential = attack.potential
             
-            print('ice:', ice.ice, 'upgrade_PP:', upgrade_PP, 'attack_PP:', attack_potential)
+            print('ice:', ice.ice, 'upgrade_PP:', upgrade_PP, 'attack_PP:', attack_potential,'amount:', amount)
             if upgrade_PP > attack_potential and ice not in attacking_ices:
                 ice_used.add(ice)
                 if ice.max_send > ice.ice.upgrade_cost:
@@ -822,6 +922,9 @@ def Upgrade(attack_infos, ice_used):
 
 
 def Support(ice_used):
+    """
+    
+    """
     for support in turnfo.Get_Supporters():
         attackers = sorted(turnfo.Get_Attackers(),key = lambda x: x.ice.get_turns_till_arrival(support.ice))
         if support not in ice_used and support.level >= 3:
@@ -835,7 +938,7 @@ def Support(ice_used):
 
 def Bridge_Reinforcement(game, ice_used):
 
-    if game.get_time_remaining() > -150: # protection from timeout
+    if game.get_time_remaining() > -150: # protection from timeout;
         unally = turnfo.all_ice
     else:
         unally = turnfo.nu_ice + turnfo.en_ice 
@@ -871,29 +974,47 @@ def Bridge_Reinforcement(game, ice_used):
         best_group = None #the best paths to make a bridge in;
         
         #finds the best combination of bridges;
-        for i in range(1, len(sources) + 1):    # for all the iceberg sources
-            for group in itertools.combinations(sources, i):    # for all icebergs combinations
+        for i in range(1, len(sources) + 1):    # for all the iceberg sources;
+            for group in itertools.combinations(sources, i):    # finds the best bridge + penguin groups combination;
+                flag = False
+                for ice in group:
+                    if ice.bridges:
+                        print('ice',ice)
+                        print('bridges',ice.bridges)
+                        print('edges',ice.bridges[0].get_edges())
+                        for bridge in ice.bridges:
+                            if bridge.get_edges() == (ice,target):
+                                flag = True
+                                break
+                    if flag:
+                        break
+                if flag:
+                    continue
                 #if building the bridge will help;
-                if Get_Amount_Bridge(target,turnfo.K[2],group) > 0:
+                gab = Get_Amount_Bridge(target,turnfo.K[1],group)
+                #print('Get_amount with bridge:',gab,'target:',target,'sources:',sources)
+                amount, neutral = gab
+                if amount > 0 and not neutral:
                     
-                    total_turns = [] # a list containing all of the turns_till_arival of the groups to the destination(including the bridges)
-                    # for all the penguin groups heading to the target
+                    total_turns = [] # a list containing all of the turns_till_arival of the groups to the destination(including the bridges);
+                    # for all the penguin groups heading to the target;
 
                     #add the amount of turns the attack/defence will take on total with the bridge; 
                     for g in turnfo.penguins_to_dest[target]:
-                        if g not in group:  # if the penguin group isn't sent from the bridge source
+                        if g.source not in group:  # if the penguin group isn't sent from the bridge source;
                             total_turns.append(g.turns_till_arrival)
                             continue
-
-                        # calculate the number of turns needed while using the bridge
-                        dis = g.turns_till_arrival # ashora;
-                        dis -= group[0].bridge_speed_multiplier * group[0].max_bridge_duration
+                        
+                        # calculate the number of turns needed while using the bridge;
+                        dis = g.turns_till_arrival # hashora;
+                        dis -= turnfo.bridge_multi * turnfo.bridge_max_duration
                         if dis < 0:
-                            total_turns.append(group[0].max_bridge_duration + math.ceil(dis/group[0].bridge_speed_multiplier))
+                            total_turns.append(turnfo.bridge_max_duration + math.floor(dis/turnfo.bridge_multi))
                         else:
                             total_turns.append(dis + group[0].max_bridge_duration)
-
-                    current_PP = PP_avg(target.penguins_per_turn,max(total_turns), len(group) * group[0].bridge_cost) #bridge pp
+                        print("turns with bridge:", total_turns[-1],'penguin group:',g,'source:',g.source,'target:',g.destination)
+                    
+                    current_PP = PP_avg(a = target.penguins_per_turn, b = max(total_turns), c = len(group) * group[0].bridge_cost) #bridge pp;
                     if current_PP > best_PP:
                         best_PP = current_PP
                         best_group = group
@@ -901,32 +1022,44 @@ def Bridge_Reinforcement(game, ice_used):
         if best_group == None:
             continue
         
-        if Get_Amount(target,turns=turnfo.K[2]) > 0:
-            max_turns = sorted(turnfo.penguins_to_dest[target],key = lambda x: x.turns_till_arrival)[-1].turns_till_arrival # ashora
+        max_turns = sorted(turnfo.penguins_to_dest[target],key = lambda x: x.turns_till_arrival)[-1].turns_till_arrival # hashora;
+        if target.owner.id == turnfo.my_id:
+            for attacker in turnfo.Get_Attackers():
+                #print('if:',att=cker.ice == target,Max_Send(turns = max_turns , ice = target) > 0,'target:',target,'group',best_group)
+                if attacker.ice == target and Max_Send(turns = max_turns , ice = target) > 0:
+                    flag = True
+            if flag:
+                continue
+        # if only the penguin groups will help;
+        if Get_Amount(target,turns=turnfo.K[1]) > 0:
             print('BPP:','group:',best_group,'target:',target,'bridge_PP:',best_PP)
+            # if the potential with the bridge is larger than the potential with only the penguin groups;
             if best_PP >= PP_avg(target.penguins_per_turn,max_turns, 0):
                 for ice in best_group:
                     ice_info = None
+                    # finding the ice_info
                     for ice2 in turnfo.my_ice:
                         if ice2.ice == ice:
                             ice_info = ice2
                             break
                     if ice_info not in ice_used:
-                        ice.create_bridge(target)#;
+                        ice.create_bridge(target)
                         ice_used.add(ice_info)
+        # if only the penguin groups won't help -> see if a bridge would make the group helpful;
         else:
-            max_turns = sorted(turnfo.penguins_to_dest[target],key = lambda x: x.turns_till_arrival)[-1].turns_till_arrival # ashora
             print('BPP2:','group:',best_group,'target:',target,'bridge_PP:',best_PP)
+            # if the potential with the bridge is larger than giving up;
             if best_PP >= PP_avg(0, max_turns, 0):
                 for ice in best_group:
                     ice_info = None
+                    # finding the ice_info
                     for ice2 in turnfo.my_ice:
                         if ice2.ice == ice:
                             ice_info = ice2
                             break
                         
                     if ice_info not in ice_used:
-                        ice.create_bridge(target)#;
+                        ice.create_bridge(target)
                         ice_used.add(ice_info)
 
     return ice_used
@@ -942,6 +1075,7 @@ def Get_Amount_Bridge(target, turns , bridge_sources):
     if target != turnfo.bu_ice:
         ice_prod = target.penguins_per_turn
         
+    neutral = True if target.owner.id == -1 else False
     #save the turns of the last group
     last_turns = 0
     #amount of penguins left on ice
@@ -973,7 +1107,17 @@ def Get_Amount_Bridge(target, turns , bridge_sources):
             till_arrival = math.floor(group.turns_till_arrival / float(group.source.bridge_speed_multiplier))
             if till_arrival > group.source.max_bridge_duration:
                 till_arrival += group.turns_till_arrival - (group.source.max_bridge_duration * group.source.bridge_speed_multiplier)
-            
+        
+        if neutral:
+            left -= group.penguin_amount
+            if left < 0:
+                neutral = False
+                if group.owner.id == turnfo.my_id:
+                    left = abs(left)
+            else:
+                continue
+                
+
         #if we left the turn scope: exit
         if till_arrival > turns:
             break
@@ -996,8 +1140,9 @@ def Get_Amount_Bridge(target, turns , bridge_sources):
                     
                 if passed_turns_to_bonus and turns_before_bonus >= turnfo.bu_ice.max_turns_to_bonus:
                     left -= turnfo.bu_ice.penguin_bonus * math.floor(turns_before_bonus/turnfo.bu_ice.max_turns_to_bonus)
-                    turns_before_bonus -= turnfo.bu_ice.max_turns_to_bonus * math.floor(turns_before_bonus/turnfo.bu_ice.max_turns_to_bonus)
+                    turns_before_bonus -= turnfo.bu_ice.max_turns_to_bonus * math.floor(turns_before_bonus/turnfo.bu_ice.max_turns_to_bonus)            
         
+
         if group.owner.id == turnfo.my_id:
             left += group.penguin_amount      
         else:
@@ -1006,20 +1151,37 @@ def Get_Amount_Bridge(target, turns , bridge_sources):
         last_turns = till_arrival
 
     if left > 0:
-        left += ice_prod * (turns - last_turns)
-    else:
+        left += ice_prod * (turns - last_turns) 
+    elif left < 0:
         left -= ice_prod * (turns - last_turns)
+    else:
+        neutral = True
 
-    return left
+    return left , neutral
 
 def Update_density():
+    
     global density
     density = 0
+
+    maxi_one = 0
+    maxi_two = 0
+
     for ice in turnfo.all_ice:
         for ice2 in turnfo.all_ice:
-            density += ice2.get_turns_till_arrival(ice)
-
-    density /= len(turnfo.all_ice)**2
+            if ice.get_turns_till_arrival(ice2) > maxi_one:
+                maxi_one = ice.get_turns_till_arrival(ice2)
+            elif ice.get_turns_till_arrival(ice2) > maxi_two:
+                maxi_two = ice.get_turns_till_arrival(ice2)
+            
+            if maxi_one < maxi_two:
+                temp = maxi_one
+                maxi_one = maxi_two
+                maxi_two = temp
+    
+    area = (maxi_one / 2) * (maxi_two / 2) * math.pi    # area of an ellipse
+    density = (math.sqrt(len(turnfo.all_ice) / area))
+    print('desnsity:',density)
 
 def do_turn(game):
     global turnfo
@@ -1032,31 +1194,33 @@ def do_turn(game):
 
     ice_used = set()  # a set containing all icebergs that have done an action(upgraded/attacked)
 
-    print("Attackers,", turnfo.Get_Attackers())
+    #print("Attackers,", turnfo.Get_Attackers())
+    
 
+    ice_used = Bridge_Reinforcement(game, ice_used) # calculate bridge uses
     # we get the attack infos of the best groups
     for ice in turnfo.all_ice:
-        if ice.owner.id == turnfo.my_id:
-            print("FRIENDLY_ICE: ", ice, Get_Amount(ice, 50))
+        #if ice.owner.id == turnfo.my_id:
+            #print("FRIENDLY_ICE: ", ice, Get_Amount(ice, 50))
             # print("MAX_SEND_AMOUNT: ", ice.max_send)
-        elif ice.owner.id == turnfo.en_ice:
-            print("ENEMY_ICE: ", ice, Get_Amount(ice, 50))
-        else:
-            print("NEUTRAL_ICE: ", ice, Get_Amount_Neutral(ice, 50))
+        #elif ice.owner.id == turnfo.en_ice:
+            #print("ENEMY_ICE: ", ice, Get_Amount(ice, 50))
+        #else:
+            #print("NEUTRAL_ICE: ", ice, Get_Amount_Neutral(ice, 50))
 
-        ice_used = Bridge_Reinforcement(game, ice_used)
 
         if Already_Taken_Action(ice):  # if there is a penguin group attacking enough already
             continue
 
         if ice.owner.id == turnfo.my_id:
-            best_group = Best_Group_Defence(ice)
+            best_group = Best_Group_Defence(ice, forbidden_ice=ice_used)
 
         else:
-            best_group = Best_Group_Attack(ice)
+            best_group = Best_Group_Attack(ice, forbidden_ice=ice_used)
 
         if best_group != None:
             attack_infos.append(best_group)
+
 
     attack_infos.sort(key=lambda x: x.potential, reverse=True)
 
@@ -1070,8 +1234,12 @@ def do_turn(game):
 
     for attack in attack_infos:
         if attack.target in game.get_my_icebergs():
+            turns_to_overtake = Turns_To_Execute_Defence(attack.group, attack.target)
+            attack.can_execute = turns_to_overtake
             print('Defence: ', attack)
         else:
+            turns_to_overtake = Turns_To_Execute_Attack(attack.group, attack.target)
+            attack.can_execute = turns_to_overtake
             print('Attack: ', attack)
 
         # if the group cannat execute the attack this turn then wait
@@ -1087,10 +1255,8 @@ def do_turn(game):
                 break
         else:
             Attack(attack, ice_used)
-            # add bridge in defence 
-            if ice_info not in ice_used and ice_info.max_send > ice_info.ice.bridge_cost and attack.target in game.get_my_icebergs() and not ice_info.ice.bridges: 
-                ice_info.ice.create_bridge(attack.target)
-                ice_used.add(ice_info)
 
     Support(ice_used)
     print(game.get_time_remaining())
+    #bshvil
+    #shoshani hshamen
