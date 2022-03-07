@@ -9,7 +9,8 @@ turnfo = None
 density = 0
 # the number of turns we look into the  future ;
 turn_skope = 0
-
+# you'll never know ;)
+shoshani_and_maya_var = 0
 
 class Game_Info:
     """
@@ -77,6 +78,8 @@ class Game_Info:
         self.turn_skope = turn_skope # 50
         self.density = density
 
+        self.my_total_amount = 0
+
         # initialize the penguins_to_dest dictionary;
         for ice in self.all_ice:
             self.penguins_to_dest[ice] = []
@@ -92,10 +95,10 @@ class Game_Info:
         and updates all of their parameters;
         
         """
-    
         self.my_ice = [Ice_Info(game, ice) for ice in game.get_my_icebergs()]
         for ice in self.my_ice:
             ice.Initialize()
+        self.Update_Total_Amount(game)
 
 
     def Get_Attackers(self):
@@ -109,7 +112,10 @@ class Game_Info:
 
         return ret
 
-
+    def Update_Total_Amount(self, game):
+        for ice in game.get_my_icebergs():
+            self.my_total_amount += ice.penguin_amount
+        
     def Get_Supporters(self):
         """
         This function returns all the supporters(via roles);
@@ -262,14 +268,32 @@ class Attack_Info:
         if self.target != turnfo.bu_ice:    # if the target isn't a bonus iceberg;
             self.potential += PP(self.target.penguins_per_turn, self.turns, self.cost) + SP(self.target)
 
-        else:   #the target is a bouns iceberg
-            a = float(turnfo.bonus) / float(turnfo.max_turns_to_bonus) * float(len(turnfo.my_ice)) # bouns production
+        else:   #the target is a bouns iceberg                                                     
+            """a = float(turnfo.bonus) / float(turnfo.max_turns_to_bonus) * float(len(turnfo.my_ice)) # bouns production
             if turnfo.bu_ice.owner.id == turnfo.my_id:  # if the bonus iceberg is already ours (defence)
                 self.potential += PP(a, turnfo.bu_ice.turns_left_to_bonus, self.cost) + SP(self.target)
             else:   # conquering the bonus
-                self.potential += PP(a, self.turns + turnfo.bu_ice.max_turns_to_bonus, self.cost) + SP(self.target)
-            
+                self.potential += PP(a, self.turns + turnfo.bu_ice.max_turns_to_bonus, self.cost) + SP(self.target)"""
+
+                # option 3 - a  more balanced & ?accurate? PP
+            a = float(turnfo.bonus) / float(turnfo.max_turns_to_bonus) # * float(len(turnfo.my_ice)) # bouns prod
+            if turnfo.bu_ice.owner.id == turnfo.my_id: 
+                self.potential = PP(a, self.turns + turnfo.bu_ice.turns_left_to_bonus, self.cost) + SP(self.target)
+                self.potential += (len(turnfo.my_ice) - 1) * (PP(a, self.turns + turnfo.bu_ice.turns_left_to_bonus, 0))  #no sp??
+            else:	
+                self.potential = PP(a, self.turns + turnfo.max_turns_to_bonus, self.cost) + SP(self.target) 
+                self.potential += (len(turnfo.my_ice) - 1) * (PP(a, self.turns + turnfo.max_turns_to_bonus, 0)) #no sp??
+                
             print("bonus PP: ", self.potential)
+
+        total_amount = turnfo.my_total_amount
+        print('total_amount', total_amount, 'target', target, 'calced amount',  0.9 * total_amount, 'cost', self.cost, 'samv',shoshani_and_maya_var)
+        if len(turnfo.my_ice) >= 3 and float(self.cost) > float(0.9 * total_amount) and self.target.owner.id == -1 and shoshani_and_maya_var > len(turnfo.en_ice):
+            print('potential BEFORE', self.potential)
+            #self.potential *= ((1.0 / density) / 100.0)
+            self.potential = -1
+            print('potential AFTER', self.potential)
+
 
         # preferes taking action on non-natrual & bonus icebergs
         # TODO: ??? HUH?? T_T 8==D
@@ -426,8 +450,10 @@ def SP(ice):
     sp = 0.0
     max_turns = Max_Turns_Ice([iceb for iceb in turnfo.all_ice if iceb != turnfo.bu_ice],ice)
     
-
+    
     for iceberg in turnfo.my_ice:
+        if iceberg == None:
+            continue
         if ice == iceberg.ice: 
             sp += iceberg.amount
             continue
@@ -525,6 +551,9 @@ def Get_Cost(target, turns):
     """
 
     if target == turnfo.bu_ice:
+        cost, neutral = Get_Amount(target, turns)
+        if cost < 0:
+            return abs(cost) + 1 
         return 10000000000 + 1 #FRICK YOU BONUS ICE...E
     
     #if the target is an enemy iceberg
@@ -585,9 +614,7 @@ def Best_Group_Attack(target, forbidden_ice = []):
  
     if best_group == None:
         return None
-    
-    if best_group[0].ice.id == 1 and len(best_group) == 1:
-        print('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')
+
     return Attack_Info(group = best_group,
                     target = target,
                     turns = best_turns,
@@ -605,13 +632,11 @@ def Best_Group_Defence(target, forbidden_ice = None):
     best_group = None
     best_turns = 1000
 
-    defenders = turnfo.my_ice
+    defenders = []
 
-    removed_ice = None
     for ice in turnfo.my_ice:
-        if ice.ice == target:
-            defenders.remove(ice)
-            removed_ice = ice
+        if ice.ice != target:
+            defenders.append(ice)
 
     for i in range(1, len(defenders) + 1):
         for group in itertools.combinations(defenders, i):
@@ -633,10 +658,8 @@ def Best_Group_Defence(target, forbidden_ice = None):
     cost = Get_Cost(target, best_turns+1)
     #if cost == 0:
         
-    defenders.append(removed_ice)
     #we keep it for dvir
     #I know he is full of smoke
-    del removed_ice
 
     return Attack_Info(group=best_group,
                     target=target,
@@ -749,7 +772,8 @@ def Calculate_bridge_impact(penguin_group,bridge_duration):
     
     dis = penguin_group.turns_till_arrival # hashoora;
     dis -= turnfo.bridge_multi * bridge_duration
-    
+    print("group", penguin_group, "turnz", dis, penguin_group.turns_till_arrival)
+
     if dis < 0:
         return int(math.ceil(float(penguin_group.turns_till_arrival) / float(turnfo.bridge_multi)))
         
@@ -848,7 +872,7 @@ def Lo_Yodaat(left, updated_till_arrival, index):
 
     return left, neutral, i , False
 
-def Get_Amount(ice, turns, offset = 0, bridge_sources=[]):
+def Get_Amount(ice, turns, offset = 0, bridge_sources=[], turns_offset = 0):
     """
     hapkooda!
     Gets an iceberg
@@ -867,22 +891,17 @@ def Get_Amount(ice, turns, offset = 0, bridge_sources=[]):
     #print('GET AMOUNTTTT','ice',ice,'uta', updated_till_arrival)
 
     neutral = False
-    if ice.owner.id == turnfo.my_id:
-        left = ice.penguin_amount #if our iceberg left is positive;
-    elif ice.owner.id == turnfo.en_id:
-        left = -ice.penguin_amount #if enemy left is negative;
-    else:
-        left = ice.penguin_amount - offset #if neutral left positive and neutral set to True;
-        neutral = True
 
     ice_prod = 0
+    last_turns = 0   # the amount of turns already passed;
+
     if ice != turnfo.bu_ice:
         ice_prod = ice.penguins_per_turn
 
     if ice.owner.id == turnfo.en_id:
-        left = -ice.penguin_amount  + offset
+        left = -ice.penguin_amount + offset #if enemy left is negative;
     elif ice.owner.id == turnfo.my_id:
-        left = ice.penguin_amount - offset
+        left = ice.penguin_amount - offset #if enemy left is negative;
         try:
             if left == 0 and not updated_till_arrival[0].turns_till_arrival == 1:
                 left += ice_prod
@@ -890,8 +909,14 @@ def Get_Amount(ice, turns, offset = 0, bridge_sources=[]):
         except:
             left += ice_prod
             last_turns = 1
+    else:
+        left = ice.penguin_amount - offset #if neutral left positive and neutral set to True;
+        neutral = True
+        if left < 0:
+            left = abs(left)
+            neutral = False 
 
-    last_turns = 0   # the amount of turns already passed;
+    last_turns += turns_offset
     i = 0
     while i < len(updated_till_arrival):
         penguin_group, turns_till_arrival = updated_till_arrival[i]
@@ -905,11 +930,11 @@ def Get_Amount(ice, turns, offset = 0, bridge_sources=[]):
             #if we have the iceberg;
             if left > 0:
                 # append that shit
-                left += ice.penguins_per_turn * (turns_till_arrival - last_turns)
+                left += ice_prod * (turns_till_arrival - last_turns)
             # the iceberg is the emeny's
-            else:
+            else:                                                                                                                                                
                 # append that shit but do it negatively
-                left -= ice.penguins_per_turn * (turns_till_arrival - last_turns)
+                left -= ice_prod * (turns_till_arrival - last_turns)
         
         if not neutral: # do it again :(
             # if it's our penguin group
@@ -942,9 +967,9 @@ def Get_Amount(ice, turns, offset = 0, bridge_sources=[]):
 
     if not neutral:
         if left > 0:
-            left += ice.penguins_per_turn * (turns - last_turns)
+            left += ice_prod * (turns - last_turns)
         else:
-            left -= ice.penguins_per_turn * (turns - last_turns)
+            left -= ice_prod * (turns - last_turns)
 
     else:
         left = abs(left)
@@ -973,7 +998,7 @@ def Upgrade(attack_infos, ice_used):
             if ice in ice_used or ice.level == 4:
                 continue
             
-            print('attacking ice',attacking_ices,'ice',ice)
+            #print('attacking ice',attacking_ices,'ice',ice)
             turns_to_upgrade = Turns_To_Upgrade(ice)
             upgrade_PP = (1-density) * PP(1, turns_to_upgrade, ice.upgrade_cost) + SP(ice.ice)  # the upgrade potential for an iceberg
             amount = Attack_Split(attack, ice)  # the amount that this iceberg will attack in this attack info
@@ -995,7 +1020,7 @@ def Upgrade(attack_infos, ice_used):
                 attacking_ices.add(ice)
 
     not_attackers = [ice_info for ice_info in turnfo.my_ice if ice_info not in attacking_ices]
-    for ice in turnfo.my_ice:
+    for ice in not_attackers:
         if ice.level == 4:
             continue
         if ice not in ice_used and ice.max_send > ice.upgrade_cost:
@@ -1050,6 +1075,8 @@ def Attack_And_Defence(attack_info):
     
     need_to_send = attack_info.cost
     max_group_turns = Max_Turns_En_Penguin(attack_info.target)
+
+    already_attacked = set()
     for attacker in attackers:
         
         attack_amount = int(min(need_to_send, attacker.max_send))
@@ -1065,17 +1092,25 @@ def Attack_And_Defence(attack_info):
         print('--------')
 
         best_attack_group = [attacker]
-        if dist <= max_group_turns:
+        if dist <= max_group_turns and attack_info.target.owner.id == -1:
+            best_attack_group = []
             for i in range(1,len(attackers) + 1):
                 for attack_group in itertools.combinations(attackers,i):
-                    attack_amount = sum([attackeron.amount for attackeron in attack_group])
-                    if Get_Amount(attack_info.target,attack_info.turns,offset=attack_amount)[1] > 0:
+                    current_attack_amount = sum([attackeron.amount for attackeron in attack_group])
+                    max_current_turns = Max_Turns_Ice(attack_group,attack_info.target)
+                    left, neutral = Get_Amount(attack_info.target,max_group_turns,offset=current_attack_amount,turns_offset = max_current_turns)
+                    if left > 0 and not neutral:
                         best_attack_group = attack_group
 
         for att in best_attack_group:
-            att.ice.send_penguins(attack_info.target, attack_amount)
-            att.amount -= attack_amount
-            att.Update_Max_Send()
+            if att in already_attacked:
+                continue
+            if att == attacker:
+                att.ice.send_penguins(attack_info.target, attack_amount)
+                att.amount -= attack_amount
+                att.Update_Max_Send()
+
+                already_attacked.add(att)
 
 
 def Already_Taken_Action(target):
@@ -1087,9 +1122,9 @@ def Already_Taken_Action(target):
         return True     - the target will be ours
 
     """
-    if Get_Cost(target,turnfo.turn_skope):
-        return False
-    return True
+    if Get_Cost(target,turnfo.turn_skope) == 0:
+        return True
+    return False
     
 
 def Closest_Attacker(supporter):
@@ -1127,10 +1162,10 @@ def Is_There_A_Bridge(edge1, edge2):
 def Bridge_Reinforcement(game,ice_used):
     bridge_dests = turnfo.all_ice
     print(game.get_time_remaining())
-    if game.get_time_remaining() < -50:
-        bridge_dests = turnfo.en_ice
 
     for target in bridge_dests:
+        if game.get_time_remaining() <= 0:
+            break
         # can't build bridges to bonus ice
         if target == turnfo.bu_ice:
             continue
@@ -1158,6 +1193,8 @@ def Bridge_Reinforcement(game,ice_used):
         best_group = None
         best_PP = 0
         for group_len in range(1, len(sources) + 1):
+            if game.get_time_remaining() <= 0:
+                    break
             for group in itertools.combinations(sources,group_len):
 
                 flag = True
@@ -1188,33 +1225,33 @@ def Bridge_Reinforcement(game,ice_used):
                     #print(target,max_turns_with_bridges)
                     best_group = group
                     best_PP = current_PP
-        
-        
-        updated_ally_penguin_groups = [g[1] for g in Update_Penguin_Group_TTA(target) if g[0].owner.id == turnfo.my_id]
-        normal_max_turns = max(updated_ally_penguin_groups)
-        current_PP = 0
-        
-        if Get_Cost(target,turn_skope) == 0:
-            current_PP = PP(target.penguins_per_turn,normal_max_turns,0)    # the potential without the bridge
         else:
-            current_PP = PP(0,normal_max_turns,0)   # the potential of abandoning the iceberg(0)
-        
-        if target.owner.id == turnfo.my_id:
-            for attacker in turnfo.Get_Attackers():
-                #print('if:',att=cker.ice == target,Max_Send(turns = max_turns , ice = target) > 0,'target:',target,'group',best_group)
-                if attacker.ice == target and Max_Send(turns = normal_max_turns , ice = target) > 0:
-                    flag = True
-            if flag:
-                continue
-        #print('bridge PP', best_PP,'without bridge PP', current_PP)
-        # if building a bridge will be better
-        if best_PP > current_PP:
-            for ice in best_group:
-                ice.create_bridge(target)
-                for ice_info in turnfo.my_ice:
-                    if ice_info.ice == ice:
-                        ice_used.add(ice_info)
-                        break
+            
+            updated_ally_penguin_groups = [g[1] for g in Update_Penguin_Group_TTA(target) if g[0].owner.id == turnfo.my_id]
+            normal_max_turns = max(updated_ally_penguin_groups)
+            current_PP = 0
+            
+            if Get_Cost(target,turn_skope) == 0:
+                current_PP = PP(target.penguins_per_turn,normal_max_turns,0)    # the potential without the bridge
+            else:
+                current_PP = PP(0,normal_max_turns,0)   # the potential of abandoning the iceberg(0)
+            
+            if target.owner.id == turnfo.my_id:
+                for attacker in turnfo.Get_Attackers():
+                    #print('if:',att=cker.ice == target,Max_Send(turns = max_turns , ice = target) > 0,'target:',target,'group',best_group)
+                    if attacker.ice == target and Max_Send(turns = normal_max_turns , ice = target) > 0:
+                        flag = True
+                if flag:
+                    continue
+            #print('bridge PP', best_PP,'without bridge PP', current_PP)
+            # if building a bridge will be better
+            if best_PP > current_PP:
+                for ice in best_group:
+                    ice.create_bridge(target)
+                    for ice_info in turnfo.my_ice:
+                        if ice_info.ice == ice:
+                            ice_used.add(ice_info)
+                            break
     return ice_used
 
 
@@ -1223,8 +1260,7 @@ def attackers_amount():
     #return int(math.ceil((1.0 - ((1 / density) / 100.0)) * a))
     #return int(math.ceil((1.0 - density) * a/2))
 def do_turn(game):
-    
-    global turnfo, turn_skope, density
+    global turnfo, turn_skope, density, shoshani_and_maya_var
     print(density)
     turnfo = Game_Info(game)
     turnfo.Update(game)
@@ -1235,6 +1271,7 @@ def do_turn(game):
 
     #aa = attackers_amount()
     Assign_Roles(attackers=3)
+    shoshani_and_maya_var = 0
 
     attack_infos = []
     ice_used = set()
@@ -1247,7 +1284,16 @@ def do_turn(game):
     
     #for ice in turnfo.my_ice:
     #    print('MAX_SEND: ', ice.max_send,';;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;')
-    
+    for ice in turnfo.all_ice:
+        if ice.owner.id == turnfo.my_id:
+            shoshani_and_maya_var += 1
+        else:
+            print("GTGT", ice, Get_Amount(ice, 1))
+            if ice.owner.id == -1 and not Get_Amount(ice, 2)[1]:
+            #if ice.owner.id == -1 and (p_groups[0] == 1):
+                shoshani_and_maya_var += 1
+            #?? שם מעניין
+            
     for ice in turnfo.all_ice:
         best_group = None
 
@@ -1264,12 +1310,12 @@ def do_turn(game):
         #print("SP: ", SP(ice))
         #print("Already Taken Action: ", Already_Taken_Action(ice))
 
-        if ice == turnfo.bu_ice:
+        #if ice == turnfo.bu_ice:
+        #    continue
+
+        if Already_Taken_Action(ice): # if the defence / attack task is already taken care of
             continue
 
-        if Already_Taken_Action(ice):  # if the defence / attack task is already taken care of
-            continue
-        
         if ice.owner.id != turnfo.my_id:
             best_group = Best_Group_Attack(ice, ice_used)
         else:
@@ -1279,16 +1325,19 @@ def do_turn(game):
             continue
 
         attack_infos.append(best_group)
-    # shiton week 3 The if
+    # shiton week 3 The if TODO make the if more the if;
     if len(turnfo.my_ice) == 1 and density == 0.01695141405712495:
+        if game.turn == 296:
+            for ice in turnfo.nu_ice:
+                if ice.id == 3:
+                    turnfo.my_ice[0].ice.create_bridge(ice)
         if Max_Send(turns = 50, ice = turnfo.my_ice[0].ice,offset = turnfo.en_ice[0].penguin_amount) <= 0:
             return
-        
+     
     attack_infos = sorted(attack_infos, key = lambda x: x.potential, reverse = True) #from best 8=========D to worst
     attack_infos, ice_used = Upgrade(attack_infos,ice_used)
     attack_infos = [info for info in attack_infos if info != None]
     attack_infos = sorted(attack_infos, key = lambda x: x.potential, reverse = True) #from best 8=========D to worst
-
 
     for attack in attack_infos:
         
